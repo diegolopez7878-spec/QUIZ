@@ -1467,20 +1467,43 @@
         aiText.textContent = "";
       }
 
-      function escapeHtml(text) {
-        return String(text || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
+      const ALLOWED_AI_TAGS = new Set([
+        "P",
+        "UL",
+        "OL",
+        "LI",
+        "STRONG",
+        "EM",
+        "BR",
+        "DIV",
+        "SPAN",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+      ]);
+
+      function sanitizeAiHtml(html) {
+        const template = document.createElement("template");
+        template.innerHTML = String(html || "");
+        const nodes = template.content.querySelectorAll("*");
+        nodes.forEach((el) => {
+          if (!ALLOWED_AI_TAGS.has(el.tagName)) {
+            const fragment = document.createDocumentFragment();
+            while (el.firstChild) {
+              fragment.appendChild(el.firstChild);
+            }
+            el.replaceWith(fragment);
+          } else {
+            [...el.attributes].forEach((attr) => el.removeAttribute(attr.name));
+          }
+        });
+        return template.innerHTML;
       }
 
       function formatAiContent(content) {
         if (!content) return "";
-        const escaped = escapeHtml(content);
-        const withBold = escaped.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
-        return withBold.replace(/\n/g, "<br>");
+        return sanitizeAiHtml(content);
       }
 
       function clearQuestionPicker() {
@@ -1599,8 +1622,10 @@
 
       function buildGeminiPrompt(q) {
         return (
-          "Contexte : tu coaches un candidat qui prépare un concours d’enseignant de langue française. " +
-          "Indique la réponse multiple la plus probable (lettre + texte), explique pourquoi elle est correcte et précise en une phrase pour chaque autre option pourquoi elle est moins pertinente.\n" +
+          "Contexte : tu coaches un enfant qui révise un quiz sur la littérature française. " +
+          "Utilise un langage simple pour expliquer tes choix, indique la réponse multiple la plus probable (lettre + texte), " +
+          "explique pourquoi elle est correcte et résume en une phrase pour chaque autre option pourquoi elle est moins pertinente. " +
+          "Réponds uniquement en HTML (balises comme <p>, <strong>, <em>, <ul>, <li>, <br>) sans blocs de code et termine avec une astuce ou une règle magique pour l’aider à retenir la bonne réponse.\n" +
           formatQuestionPayload(q)
         );
       }
