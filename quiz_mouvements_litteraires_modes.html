@@ -1139,6 +1139,29 @@
         localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(history));
       }
 
+      function escapeHtml(text) {
+        if (!text) return "";
+        return text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatAiResponse(content) {
+        const trimmed = (content || "").trim();
+        if (!trimmed) return "";
+        const safe = escapeHtml(trimmed);
+        return safe
+          .split(/\n\s*\n/)
+          .map((paragraph) => {
+            const withBreaks = paragraph.replace(/\n/g, "<br>");
+            return `<p>${withBreaks}</p>`;
+          })
+          .join("");
+      }
+
       function getStoredSessionState() {
         try {
           const raw = localStorage.getItem(STORAGE_SESSION_KEY);
@@ -1458,7 +1481,7 @@
       function resetAiPanel() {
         aiBox.classList.add("hidden");
         aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
-        aiText.textContent = "";
+        aiText.innerHTML = "";
       }
 
       function clearQuestionPicker() {
@@ -1618,7 +1641,7 @@
         }
 
         aiStatus.textContent = "⏳ Gemini réfléchit à une piste de réponse…";
-        aiText.textContent = "";
+        aiText.innerHTML = "";
 
         const body = {
           contents: [
@@ -1661,12 +1684,14 @@
             .trim();
 
           aiStatus.textContent = "✅ Proposition de Gemini :";
-          aiText.textContent = content || "Aucune réponse claire n’a été fournie.";
+          aiText.innerHTML =
+            formatAiResponse(content) || "<p>Aucune réponse claire n’a été fournie.</p>";
         } catch (error) {
           aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
-          aiText.textContent =
-            error.message +
-            "\nAssure-toi d’avoir une connexion réseau et une clé API Gemini valide.";
+          const fallbackMessage =
+            `${error.message}\nAssure-toi d’avoir une connexion réseau et une clé API Gemini valide.`;
+          aiText.innerHTML = formatAiResponse(fallbackMessage) ||
+            "<p>Assure-toi d’avoir une connexion réseau et une clé API Gemini valide.</p>";
         }
       }
 
