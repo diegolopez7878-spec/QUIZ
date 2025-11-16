@@ -1467,6 +1467,22 @@
         aiText.textContent = "";
       }
 
+      function escapeHtml(text) {
+        return String(text || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatAiContent(content) {
+        if (!content) return "";
+        const escaped = escapeHtml(content);
+        const withBold = escaped.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+        return withBold.replace(/\n/g, "<br>");
+      }
+
       function clearQuestionPicker() {
         if (!questionPicker) return;
         questionPicker.innerHTML = "";
@@ -1667,12 +1683,15 @@
             .trim();
 
           aiStatus.textContent = "✅ Proposition de Gemini :";
-          aiText.textContent = content || "Aucune réponse claire n’a été fournie.";
+          aiText.innerHTML = formatAiContent(
+            content || "Aucune réponse claire n’a été fournie."
+          );
         } catch (error) {
           aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
-          aiText.textContent =
+          aiText.innerHTML = formatAiContent(
             error.message +
-            "\nAssure-toi d’avoir une connexion réseau et une clé API Gemini valide.";
+              "\nAssure-toi d’avoir une connexion réseau et une clé API Gemini valide."
+          );
         }
       }
 
