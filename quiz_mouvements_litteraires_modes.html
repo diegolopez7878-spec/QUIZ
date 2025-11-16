@@ -377,6 +377,23 @@
         background: rgba(37, 99, 235, 0.08); /* petit pill “Question” */
       }
 
+      .question-navigation {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 8px 0 4px;
+        align-items: center;
+      }
+
+      .question-select {
+        flex: 1;
+        min-width: 220px;
+      }
+
+      .btn-nav {
+        white-space: nowrap;
+      }
+
       .question-text {
         font-size: 1rem; /* très grand */
         font-weight: 700; /* EXTRA bold */
@@ -617,6 +634,19 @@
           <div class="question-label">
             <span id="question-label">Question</span>
             <span id="question-image" class="question-image"></span>
+          </div>
+          <div class="question-navigation hidden" id="question-nav">
+            <button class="btn btn-ghost btn-nav" id="nav-prev-btn" type="button">
+              ⬅️ Question précédente
+            </button>
+            <select
+              class="select question-select"
+              id="question-picker"
+              aria-label="Choisir une question"
+            ></select>
+            <button class="btn btn-ghost btn-nav" id="nav-next-btn" type="button">
+              ➡️ Question suivante
+            </button>
           </div>
           <div class="question-text" id="question-text"></div>
 
@@ -1084,9 +1114,17 @@
       const flashcardText = document.getElementById("flashcard-text");
       const flashcardBtn = document.getElementById("show-flashcard-answer");
       const themeFilter = document.getElementById("theme-filter");
+      const questionNav = document.getElementById("question-nav");
+      const questionPicker = document.getElementById("question-picker");
+      const navPrevBtn = document.getElementById("nav-prev-btn");
+      const navNextBtn = document.getElementById("nav-next-btn");
       const bestScoreEl = document.getElementById("best-score");
       const historyListEl = document.getElementById("history-list");
-      const COPILOT_CHAT_URL = "https://copilot.microsoft.com/?prompt=";
+      const GEMINI_MODEL = "gemini-2.0-flash";
+      const GEMINI_KEY_STORAGE = "quiz_gemini_api_key_v1";
+      const GEMINI_API_BASE =
+        "https://generativelanguage.googleapis.com/v1beta/models/";
+      const GEMINI_WEB_URL = "https://gemini.google.com/app";
       const copyBtnDefaultLabel = "📋 Copier la question + choix";
       let copyLabelTimeout = null;
       let randomEnabled = false;
@@ -1311,6 +1349,7 @@
         }
 
         updateProgress();
+        updateQuestionNavigationState();
       }
 
       function getCurrentQuestion() {
@@ -1323,6 +1362,59 @@
         aiBox.classList.add("hidden");
         aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
         aiText.textContent = "";
+      }
+
+      function clearQuestionPicker() {
+        if (!questionPicker) return;
+        questionPicker.innerHTML = "";
+        questionPicker.disabled = true;
+        questionNav.classList.add("hidden");
+      }
+
+      function buildQuestionPickerOptions() {
+        clearQuestionPicker();
+        if (!order.length) return;
+        const total = order.length;
+        const fragment = document.createDocumentFragment();
+        order.forEach((questionIdx, idx) => {
+          const option = document.createElement("option");
+          const q = questions[questionIdx];
+          const raw = (q.q || "").replace(/\s+/g, " ").trim();
+          const snippet = raw.length > 80 ? raw.slice(0, 80) + "…" : raw;
+          option.value = String(idx);
+          option.textContent =
+            `${String(idx + 1).padStart(2, "0")}/${String(total).padStart(2, "0")}` +
+            ` · Q${q.id} · ${snippet}`;
+          fragment.appendChild(option);
+        });
+        questionPicker.appendChild(fragment);
+        questionPicker.disabled = false;
+        questionNav.classList.remove("hidden");
+        updateQuestionNavigationState();
+      }
+
+      function updateQuestionNavigationState() {
+        if (!order.length) {
+          clearQuestionPicker();
+          return;
+        }
+        questionPicker.value = String(currentIndex);
+        const maxIndex = order.length - 1;
+        navPrevBtn.disabled = currentIndex <= 0;
+        navNextBtn.disabled = currentIndex >= maxIndex;
+      }
+
+      function jumpToQuestion(index) {
+        if (index < 0 || index >= order.length || index === currentIndex) {
+          updateQuestionNavigationState();
+          return;
+        }
+        currentIndex = index;
+        renderQuestion();
+      }
+
+      function moveQuestion(offset) {
+        jumpToQuestion(currentIndex + offset);
       }
 
       function formatQuestionPayload(q) {
@@ -1379,182 +1471,101 @@
         randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
       }
 
-      function buildCopilotPrompt(q) {
+      function buildGeminiPrompt(q) {
         return (
-          "Aide-moi à répondre à ce QCM de littérature française en citant la réponse probable et l'explication :\n" +
+          "Tu es un professeur de littérature française. " +
+          "Indique la réponse multiple la plus probable (lettre + texte) et justifie-la en trois phrases maximum.\n" +
           formatQuestionPayload(q)
         );
       }
 
-      function openCopilotTab(promptText) {
-        const targetUrl = COPILOT_CHAT_URL + encodeURIComponent(promptText);
-        const win = window.open(targetUrl, "_blank", "noopener,noreferrer");
-        return { blocked: !win, url: targetUrl };
-      }
-
-      function askAiForHelp() {
-        const q = getCurrentQuestion();
-        if (!q) return;
-
-        aiBox.classList.remove("hidden");
-        aiStatus.textContent =
-          "🔗 Copilot s’ouvre dans un nouvel onglet (connexion Microsoft requise).";
-        aiText.textContent =
-          "Si l’onglet ne s’ouvre pas, autorise les pop-ups puis réessaie.";
-
-        const promptText = buildCopilotPrompt(q);
-        const { blocked, url } = openCopilotTab(promptText);
-
-        if (blocked) {
-          aiStatus.textContent =
-            "⚠️ Pop-up bloquée. Ouvre Copilot via le lien ci-dessous.";
-          aiText.innerHTML =
-            '<a href="' +
-            url +
-            '" target="_blank" rel="noopener">Ouvrir Microsoft Copilot</a>';
-        } else {
-          aiText.innerHTML =
-            `Besoin d’un nouvel envoi ? <a href="${url}" target="_blank" rel="noopener">Relancer Copilot</a>.`;
-        }
-      }
-
-      function getCurrentQuestion() {
-        const qIndex = order[currentIndex];
-        if (typeof qIndex !== "number") return null;
-        return questions[qIndex];
-      }
-
-      function resetAiPanel() {
-        aiBox.classList.add("hidden");
-        aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
-        aiText.textContent = "";
-      }
-
-      function formatQuestionPayload(q) {
-        const choices = q.options
-          .map((opt, idx) => `${String.fromCharCode(65 + idx)}. ${opt}`)
-          .join("\n");
-        return `Question : ${q.q}\nOptions :\n${choices}`;
-      }
-
-      function handleCopyQuestion() {
-        const q = getCurrentQuestion();
-        if (!q) return;
-        const payload = formatQuestionPayload(q);
-        const onCopied = () => {
-          copyQuestionBtn.textContent = "✅ Copié !";
-          if (copyLabelTimeout) clearTimeout(copyLabelTimeout);
-          copyLabelTimeout = setTimeout(() => {
-            copyQuestionBtn.textContent = copyBtnDefaultLabel;
-          }, 1600);
-        };
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard
-            .writeText(payload)
-            .then(onCopied)
-            .catch(() => fallbackCopy(payload, onCopied));
-        } else {
-          fallbackCopy(payload, onCopied);
-        }
-      }
-
-      function fallbackCopy(text, callback) {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-          const ok = document.execCommand("copy");
-          if (ok && callback) callback();
-        } catch (error) {
-          alert(
-            "Impossible de copier automatiquement. Sélectionne et copie manuellement."
-          );
-        } finally {
-          document.body.removeChild(textarea);
-        }
-      }
-
-      function updateRandomToggle() {
-        randomToggleBtn.textContent = randomEnabled
-          ? "🔀 Aléatoire : ON"
-          : "➡️ Aléatoire : OFF";
-        randomToggleBtn.classList.toggle("btn-primary", randomEnabled);
-        randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
+      function getGeminiEndpoint(apiKey) {
+        return (
+          GEMINI_API_BASE +
+          GEMINI_MODEL +
+          ":generateContent?key=" +
+          encodeURIComponent(apiKey)
+        );
       }
 
       async function askAiForHelp() {
         const q = getCurrentQuestion();
         if (!q) return;
-        let apiKey = localStorage.getItem(COPILOT_KEY_STORAGE);
+        let apiKey = localStorage.getItem(GEMINI_KEY_STORAGE);
         if (!apiKey) {
           apiKey = prompt(
-            "Entre ta clé API Microsoft Copilot (stockée uniquement sur ce navigateur) :"
+            "Entre ta clé API Google Gemini (stockée uniquement dans ce navigateur) :"
           );
-          if (!apiKey) {
-            aiBox.classList.remove("hidden");
-            aiStatus.textContent =
-              "⚠️ Aucun appel envoyé : aucune clé API n’a été fournie.";
-            aiText.textContent = "";
-            return;
-          }
-          apiKey = apiKey.trim();
           if (apiKey) {
-            localStorage.setItem(COPILOT_KEY_STORAGE, apiKey);
+            apiKey = apiKey.trim();
+            if (apiKey) {
+              localStorage.setItem(GEMINI_KEY_STORAGE, apiKey);
+            }
           }
         }
 
         aiBox.classList.remove("hidden");
-        aiStatus.textContent = "⏳ L’IA réfléchit à une piste de réponse…";
+
+        if (!apiKey) {
+          aiStatus.textContent = "ℹ️ Clé API Gemini manquante.";
+          aiText.innerHTML =
+            `Copie la question puis ouvre <a href="${GEMINI_WEB_URL}" target="_blank" rel="noopener">Google Gemini</a> pour obtenir une aide manuelle.`;
+          return;
+        }
+
+        aiStatus.textContent = "⏳ Gemini réfléchit à une piste de réponse…";
         aiText.textContent = "";
 
         const body = {
-          model: COPILOT_MODEL,
-          temperature: 0.2,
-          max_tokens: 250,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Tu aides un élève à répondre à un QCM de littérature française. Donne une analyse courte, cite la réponse la plus probable (lettre + texte) et explique pourquoi.",
-            },
+          contents: [
             {
               role: "user",
-              content: `${formatQuestionPayload(q)}\nExplique ton raisonnement en 3 phrases maximum.`,
+              parts: [
+                {
+                  text: buildGeminiPrompt(q),
+                },
+              ],
             },
           ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 300,
+          },
         };
 
         try {
-          const response = await fetch(COPILOT_API_URL, {
+          const response = await fetch(getGeminiEndpoint(apiKey), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
             },
             body: JSON.stringify(body),
           });
 
+          const payload = await response.json().catch(() => ({}));
           if (!response.ok) {
-            throw new Error(
-              "La réponse de l’API Copilot a échoué. Vérifie ta clé ou les quotas."
-            );
+            const message =
+              payload.error?.message ||
+              "La réponse de l’API Gemini a échoué. Vérifie la clé ou les quotas.";
+            throw new Error(message);
           }
 
-          const data = await response.json();
-          const content =
-            data.choices?.[0]?.message?.content?.trim() ||
-            "Aucune réponse claire n’a été fournie.";
-          aiStatus.textContent = "✅ Proposition de l’IA :";
-          aiText.textContent = content;
+          const parts = payload.candidates?.[0]?.content?.parts || [];
+          const content = parts
+            .map((part) => part.text || "")
+            .join("\n")
+            .trim();
+
+          aiStatus.textContent = "✅ Proposition de Gemini :";
+          aiText.textContent = content || "Aucune réponse claire n’a été fournie.";
         } catch (error) {
           aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
           aiText.textContent =
             error.message +
-            "\nAssure-toi d’avoir une connexion réseau et une clé API Copilot valide.";
+            "\nAssure-toi d’avoir une connexion réseau et une clé API Gemini valide.";
         }
       }
+
 
       function selectOptionByIndex(idx) {
         const radios = optionsEl.querySelectorAll('input[name="q"]');
@@ -1678,6 +1689,7 @@
         finalSummary.innerHTML = msg;
         recordAttempt(currentTag, score, total, secondsElapsed);
         updateErrorsButton();
+        clearQuestionPicker();
       }
 
       function startSession(useErrors = false) {
@@ -1693,8 +1705,10 @@
           finalSummary.classList.remove("hidden");
           finalSummary.innerHTML =
             "Aucune question disponible pour ce thème pour le moment.";
+          clearQuestionPicker();
           return;
         }
+        buildQuestionPickerOptions();
         updateProgress();
         renderQuestion();
         startTimer();
@@ -1712,9 +1726,15 @@
           } else if (!flashcardBtn.classList.contains("hidden")) {
             flashcardBtn.click();
           }
+        } else if (e.key === "ArrowLeft") {
+          if (!questionNav.classList.contains("hidden")) {
+            moveQuestion(-1);
+          }
         } else if (e.key === "ArrowRight") {
           if (!nextBtn.disabled) {
             nextQuestion();
+          } else if (!questionNav.classList.contains("hidden")) {
+            moveQuestion(1);
           }
         }
       }
@@ -1734,6 +1754,7 @@
         finalSummary.classList.add("hidden");
         updateErrorsButton();
         renderStats();
+        clearQuestionPicker();
       }
 
       darkToggle.addEventListener("click", () => {
@@ -1776,6 +1797,7 @@
         stopTimer();
         timerEl.textContent = "⏱ 00:00";
         updateErrorsButton();
+        clearQuestionPicker();
       });
 
       hintToggle.addEventListener("click", () => {
@@ -1805,6 +1827,14 @@
 
       copyQuestionBtn.addEventListener("click", handleCopyQuestion);
       askAiBtn.addEventListener("click", askAiForHelp);
+      navPrevBtn.addEventListener("click", () => moveQuestion(-1));
+      navNextBtn.addEventListener("click", () => moveQuestion(1));
+      questionPicker.addEventListener("change", (e) => {
+        const idx = parseInt(e.target.value, 10);
+        if (!Number.isNaN(idx)) {
+          jumpToQuestion(idx);
+        }
+      });
 
       // Init texte progression
       buildThemeFilter();
