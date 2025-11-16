@@ -621,6 +621,9 @@
 
         <div class="button-row">
           <button class="btn btn-primary" id="start-btn">▶️ Commencer</button>
+          <button class="btn btn-ghost hidden" id="resume-btn">
+            ⏯ Reprendre là où je me suis arrêté
+          </button>
           <button class="btn btn-ghost" id="review-errors-btn" disabled>
             ♻️ Revoir seulement mes erreurs
           </button>
@@ -998,6 +1001,7 @@
       const ALL_TAG = "Tous";
       const STORAGE_BEST_KEY = "quiz_best_scores_v1";
       const STORAGE_HISTORY_KEY = "quiz_history_v1";
+      const STORAGE_SESSION_KEY = "quiz_last_session_v1";
       const KNOWN_TAGS = [
         ALL_TAG,
         "Linguistique",
@@ -1086,6 +1090,7 @@
       const progressText = document.getElementById("progress-text");
       const introEl = document.getElementById("intro");
       const startBtn = document.getElementById("start-btn");
+      const resumeBtn = document.getElementById("resume-btn");
       const reviewErrorsBtn = document.getElementById("review-errors-btn");
       const resetBtn = document.getElementById("reset-btn");
       const randomToggleBtn = document.getElementById("random-toggle");
@@ -1132,6 +1137,64 @@
       function persistScores() {
         localStorage.setItem(STORAGE_BEST_KEY, JSON.stringify(bestScores));
         localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(history));
+      }
+
+      function getStoredSessionState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_SESSION_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || !Array.isArray(parsed.order) || parsed.order.length === 0) {
+            return null;
+          }
+          return parsed;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function clearStoredSession() {
+        localStorage.removeItem(STORAGE_SESSION_KEY);
+        updateResumeButton();
+      }
+
+      function persistSessionState() {
+        if (questionArea.classList.contains("hidden") || !order.length) {
+          clearStoredSession();
+          return;
+        }
+        const state = {
+          tag: currentTag,
+          mode,
+          randomEnabled,
+          order,
+          currentIndex,
+          score,
+          answeredCount,
+          errorsIndices,
+          usingErrorsSet,
+          secondsElapsed,
+        };
+        localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(state));
+        updateResumeButton();
+      }
+
+      function updateResumeButton() {
+        if (!resumeBtn) return;
+        const stored = getStoredSessionState();
+        if (stored) {
+          resumeBtn.classList.remove("hidden");
+          const total = Array.isArray(stored.order) ? stored.order.length : 0;
+          const current = total
+            ? Math.min((stored.currentIndex || 0) + 1, total)
+            : null;
+          const tagLabel = stored.tag ? ` · ${stored.tag}` : "";
+          resumeBtn.textContent = current
+            ? `⏯ Reprendre (Q${current}/${total}${tagLabel})`
+            : `⏯ Reprendre${tagLabel}`;
+        } else {
+          resumeBtn.classList.add("hidden");
+        }
       }
 
       function getPool(indices = null) {
@@ -1226,13 +1289,14 @@
         return String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
       }
 
-      function startTimer() {
+      function startTimer(initialSeconds = 0) {
         if (timerInterval) clearInterval(timerInterval);
-        secondsElapsed = 0;
-        timerEl.textContent = "⏱ 00:00";
+        secondsElapsed = initialSeconds;
+        timerEl.textContent = "⏱ " + formatTime(secondsElapsed);
         timerInterval = setInterval(() => {
           secondsElapsed++;
           timerEl.textContent = "⏱ " + formatTime(secondsElapsed);
+          persistSessionState();
         }, 1000);
       }
 
@@ -1261,6 +1325,38 @@
 
         order = randomEnabled ? shuffle(available) : available.slice();
         usingErrorsSet = useErrors && basePool !== null;
+      }
+
+      function resumeSession(state) {
+        if (!state || !Array.isArray(state.order) || state.order.length === 0) {
+          return;
+        }
+        currentTag = state.tag || ALL_TAG;
+        themeFilter.value = currentTag;
+        mode = state.mode || "revision";
+        syncModeButtons();
+        randomEnabled = !!state.randomEnabled;
+        updateRandomToggle();
+        order = state.order.slice();
+        currentIndex = Math.min(
+          Math.max(state.currentIndex || 0, 0),
+          order.length - 1
+        );
+        score = state.score || 0;
+        answeredCount = state.answeredCount || 0;
+        errorsIndices = Array.isArray(state.errorsIndices)
+          ? state.errorsIndices.slice()
+          : [];
+        usingErrorsSet = !!state.usingErrorsSet;
+        introEl.classList.add("hidden");
+        questionArea.classList.remove("hidden");
+        finalSummary.classList.add("hidden");
+        renderStats();
+        updateErrorsButton();
+        buildQuestionPickerOptions();
+        updateProgress();
+        renderQuestion();
+        startTimer(state.secondsElapsed || 0);
       }
 
       function updateProgress() {
@@ -1350,6 +1446,7 @@
 
         updateProgress();
         updateQuestionNavigationState();
+        persistSessionState();
       }
 
       function getCurrentQuestion() {
@@ -1471,10 +1568,17 @@
         randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
       }
 
+      function syncModeButtons() {
+        modeButtons.forEach((btn) => {
+          const btnMode = btn.getAttribute("data-mode");
+          btn.classList.toggle("active", btnMode === mode);
+        });
+      }
+
       function buildGeminiPrompt(q) {
         return (
-          "Tu es un professeur de littérature française. " +
-          "Indique la réponse multiple la plus probable (lettre + texte) et justifie-la en trois phrases maximum.\n" +
+          "Contexte : tu coaches un candidat qui prépare un concours d’enseignant de langue française. " +
+          "Indique la réponse multiple la plus probable (lettre + texte), explique pourquoi elle est correcte et précise en une phrase pour chaque autre option pourquoi elle est moins pertinente.\n" +
           formatQuestionPayload(q)
         );
       }
@@ -1648,6 +1752,7 @@
         nextBtn.disabled = false;
         updateErrorsButton();
         updateProgress();
+        persistSessionState();
       }
 
       function nextQuestion() {
@@ -1690,6 +1795,7 @@
         recordAttempt(currentTag, score, total, secondsElapsed);
         updateErrorsButton();
         clearQuestionPicker();
+        clearStoredSession();
       }
 
       function startSession(useErrors = false) {
@@ -1706,12 +1812,13 @@
           finalSummary.innerHTML =
             "Aucune question disponible pour ce thème pour le moment.";
           clearQuestionPicker();
+          clearStoredSession();
           return;
         }
         buildQuestionPickerOptions();
         updateProgress();
         renderQuestion();
-        startTimer();
+        startTimer(0);
       }
 
       function handleKeydown(e) {
@@ -1755,6 +1862,7 @@
         updateErrorsButton();
         renderStats();
         clearQuestionPicker();
+        updateResumeButton();
       }
 
       darkToggle.addEventListener("click", () => {
@@ -1767,15 +1875,26 @@
 
       modeButtons.forEach((btn) => {
         btn.addEventListener("click", () => {
-          modeButtons.forEach((b) => b.classList.remove("active"));
-          btn.classList.add("active");
           mode = btn.getAttribute("data-mode");
+          syncModeButtons();
+          if (!questionArea.classList.contains("hidden")) {
+            renderQuestion();
+          }
         });
       });
 
       startBtn.addEventListener("click", () => {
         startSession(false);
       });
+
+      if (resumeBtn) {
+        resumeBtn.addEventListener("click", () => {
+          const stored = getStoredSessionState();
+          if (stored) {
+            resumeSession(stored);
+          }
+        });
+      }
 
       reviewErrorsBtn.addEventListener("click", () => {
         if (errorsIndices.length === 0) return;
@@ -1798,6 +1917,7 @@
         timerEl.textContent = "⏱ 00:00";
         updateErrorsButton();
         clearQuestionPicker();
+        clearStoredSession();
       });
 
       hintToggle.addEventListener("click", () => {
@@ -1842,6 +1962,8 @@
       updateErrorsButton();
       progressText.textContent = "0 / " + getPool().length;
       updateRandomToggle();
+      syncModeButtons();
+      updateResumeButton();
       document.addEventListener("keydown", handleKeydown);
     </script>
   </body>
