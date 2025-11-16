@@ -246,6 +246,13 @@
         margin-bottom: 8px;
       }
 
+      .question-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
       .btn {
         border-radius: 999px;
         border: 1px solid transparent;
@@ -282,6 +289,32 @@
         opacity: 0.5;
         cursor: default;
         box-shadow: none;
+      }
+
+      .ai-box {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 10px;
+        background: rgba(148, 163, 184, 0.08);
+      }
+
+      body.dark .ai-box {
+        background: rgba(15, 23, 42, 0.8);
+        border-color: #1f2937;
+      }
+
+      .ai-status {
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: var(--accent);
+      }
+
+      .ai-text {
+        white-space: pre-line;
+        line-height: 1.45;
+        font-size: 0.9rem;
+        color: var(--text);
       }
 
       .question-block {
@@ -542,6 +575,9 @@
             ♻️ Revoir seulement mes erreurs
           </button>
           <button class="btn btn-ghost" id="reset-btn">🔄 Réinitialiser</button>
+          <button class="btn btn-ghost" id="random-toggle">
+            ➡️ Aléatoire : OFF
+          </button>
         </div>
 
         <div id="question-area" class="question-block hidden">
@@ -554,6 +590,22 @@
           <div class="hint-box" id="hint-box">
             <div class="hint-title">Indice</div>
             <div id="hint-text"></div>
+          </div>
+
+          <div class="question-tools">
+            <button class="btn btn-ghost" id="copy-question-btn">
+              📋 Copier la question + choix
+            </button>
+            <button class="btn btn-primary" id="ask-ai-btn">
+              🤖 Demander à l’IA
+            </button>
+          </div>
+
+          <div class="ai-box hidden" id="ai-box">
+            <div class="ai-status" id="ai-status">
+              Utilise ce panneau pour demander un coup de pouce.
+            </div>
+            <div class="ai-text" id="ai-text"></div>
           </div>
 
           <div class="options" id="options"></div>
@@ -973,6 +1025,7 @@
       const startBtn = document.getElementById("start-btn");
       const reviewErrorsBtn = document.getElementById("review-errors-btn");
       const resetBtn = document.getElementById("reset-btn");
+      const randomToggleBtn = document.getElementById("random-toggle");
       const questionArea = document.getElementById("question-area");
       const questionLabel = document.getElementById("question-label");
       const questionImage = document.getElementById("question-image");
@@ -980,6 +1033,11 @@
       const hintBox = document.getElementById("hint-box");
       const hintText = document.getElementById("hint-text");
       const hintToggle = document.getElementById("hint-toggle");
+      const copyQuestionBtn = document.getElementById("copy-question-btn");
+      const askAiBtn = document.getElementById("ask-ai-btn");
+      const aiBox = document.getElementById("ai-box");
+      const aiStatus = document.getElementById("ai-status");
+      const aiText = document.getElementById("ai-text");
       const optionsEl = document.getElementById("options");
       const feedbackEl = document.getElementById("feedback");
       const explainBox = document.getElementById("explain-box");
@@ -995,6 +1053,12 @@
       const themeFilter = document.getElementById("theme-filter");
       const bestScoreEl = document.getElementById("best-score");
       const historyListEl = document.getElementById("history-list");
+      const COPILOT_KEY_STORAGE = "quiz-copilot-key";
+      const COPILOT_API_URL = "https://api.githubcopilot.com/chat/completions";
+      const COPILOT_MODEL = "gpt-4o-mini";
+      const copyBtnDefaultLabel = "📋 Copier la question + choix";
+      let copyLabelTimeout = null;
+      let randomEnabled = false;
 
       function persistScores() {
         localStorage.setItem(STORAGE_BEST_KEY, JSON.stringify(bestScores));
@@ -1126,8 +1190,7 @@
           return;
         }
 
-        // 🔀 Ici, on mélange TOUJOURS les questions (révision, flashcards, test)
-        order = shuffle(available);
+        order = randomEnabled ? shuffle(available) : available.slice();
         usingErrorsSet = useErrors && basePool !== null;
       }
 
@@ -1162,6 +1225,7 @@
         feedbackEl.className = "feedback";
         explainBox.style.display = "none";
         flashcardAnswerBox.classList.add("hidden");
+        resetAiPanel();
         optionsEl.innerHTML = "";
 
         const qIndex = order[currentIndex];
@@ -1216,6 +1280,144 @@
         }
 
         updateProgress();
+      }
+
+      function getCurrentQuestion() {
+        const qIndex = order[currentIndex];
+        if (typeof qIndex !== "number") return null;
+        return questions[qIndex];
+      }
+
+      function resetAiPanel() {
+        aiBox.classList.add("hidden");
+        aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
+        aiText.textContent = "";
+      }
+
+      function formatQuestionPayload(q) {
+        const choices = q.options
+          .map((opt, idx) => `${String.fromCharCode(65 + idx)}. ${opt}`)
+          .join("\n");
+        return `Question : ${q.q}\nOptions :\n${choices}`;
+      }
+
+      function handleCopyQuestion() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+        const payload = formatQuestionPayload(q);
+        const onCopied = () => {
+          copyQuestionBtn.textContent = "✅ Copié !";
+          if (copyLabelTimeout) clearTimeout(copyLabelTimeout);
+          copyLabelTimeout = setTimeout(() => {
+            copyQuestionBtn.textContent = copyBtnDefaultLabel;
+          }, 1600);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(payload)
+            .then(onCopied)
+            .catch(() => fallbackCopy(payload, onCopied));
+        } else {
+          fallbackCopy(payload, onCopied);
+        }
+      }
+
+      function fallbackCopy(text, callback) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          const ok = document.execCommand("copy");
+          if (ok && callback) callback();
+        } catch (error) {
+          alert(
+            "Impossible de copier automatiquement. Sélectionne et copie manuellement."
+          );
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+
+      function updateRandomToggle() {
+        randomToggleBtn.textContent = randomEnabled
+          ? "🔀 Aléatoire : ON"
+          : "➡️ Aléatoire : OFF";
+        randomToggleBtn.classList.toggle("btn-primary", randomEnabled);
+        randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
+      }
+
+      async function askAiForHelp() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+        let apiKey = localStorage.getItem(COPILOT_KEY_STORAGE);
+        if (!apiKey) {
+          apiKey = prompt(
+            "Entre ta clé API Microsoft Copilot (stockée uniquement sur ce navigateur) :"
+          );
+          if (!apiKey) {
+            aiBox.classList.remove("hidden");
+            aiStatus.textContent =
+              "⚠️ Aucun appel envoyé : aucune clé API n’a été fournie.";
+            aiText.textContent = "";
+            return;
+          }
+          apiKey = apiKey.trim();
+          if (apiKey) {
+            localStorage.setItem(COPILOT_KEY_STORAGE, apiKey);
+          }
+        }
+
+        aiBox.classList.remove("hidden");
+        aiStatus.textContent = "⏳ L’IA réfléchit à une piste de réponse…";
+        aiText.textContent = "";
+
+        const body = {
+          model: COPILOT_MODEL,
+          temperature: 0.2,
+          max_tokens: 250,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Tu aides un élève à répondre à un QCM de littérature française. Donne une analyse courte, cite la réponse la plus probable (lettre + texte) et explique pourquoi.",
+            },
+            {
+              role: "user",
+              content: `${formatQuestionPayload(q)}\nExplique ton raisonnement en 3 phrases maximum.`,
+            },
+          ],
+        };
+
+        try {
+          const response = await fetch(COPILOT_API_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            throw new Error(
+              "La réponse de l’API Copilot a échoué. Vérifie ta clé ou les quotas."
+            );
+          }
+
+          const data = await response.json();
+          const content =
+            data.choices?.[0]?.message?.content?.trim() ||
+            "Aucune réponse claire n’a été fournie.";
+          aiStatus.textContent = "✅ Proposition de l’IA :";
+          aiText.textContent = content;
+        } catch (error) {
+          aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
+          aiText.textContent =
+            error.message +
+            "\nAssure-toi d’avoir une connexion réseau et une clé API Copilot valide.";
+        }
       }
 
       function selectOptionByIndex(idx) {
@@ -1457,11 +1659,23 @@
         flashcardAnswerBox.classList.toggle("hidden");
       });
 
+      randomToggleBtn.addEventListener("click", () => {
+        randomEnabled = !randomEnabled;
+        updateRandomToggle();
+        if (!questionArea.classList.contains("hidden")) {
+          startSession(usingErrorsSet);
+        }
+      });
+
+      copyQuestionBtn.addEventListener("click", handleCopyQuestion);
+      askAiBtn.addEventListener("click", askAiForHelp);
+
       // Init texte progression
       buildThemeFilter();
       renderStats();
       updateErrorsButton();
       progressText.textContent = "0 / " + getPool().length;
+      updateRandomToggle();
       document.addEventListener("keydown", handleKeydown);
     </script>
   </body>
