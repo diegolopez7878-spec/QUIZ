@@ -1092,6 +1092,7 @@
       const startBtn = document.getElementById("start-btn");
       const resumeBtn = document.getElementById("resume-btn");
       const reviewErrorsBtn = document.getElementById("review-errors-btn");
+      const REVIEW_ERRORS_LABEL = "♻️ Revoir seulement mes erreurs";
       const resetBtn = document.getElementById("reset-btn");
       const randomToggleBtn = document.getElementById("random-toggle");
       const questionArea = document.getElementById("question-area");
@@ -1370,7 +1371,12 @@
       }
 
       function updateErrorsButton() {
-        reviewErrorsBtn.disabled = getPool(errorsIndices).length === 0;
+        const errorsForCurrentTag = getPool(errorsIndices).length;
+        reviewErrorsBtn.disabled = errorsForCurrentTag === 0;
+        reviewErrorsBtn.textContent =
+          errorsForCurrentTag > 0
+            ? `${REVIEW_ERRORS_LABEL} (${errorsForCurrentTag})`
+            : REVIEW_ERRORS_LABEL;
       }
 
       function getSelectedIndex() {
