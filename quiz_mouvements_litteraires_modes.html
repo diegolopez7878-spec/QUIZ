@@ -253,6 +253,13 @@
         margin-bottom: 10px;
       }
 
+      .question-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
       .btn {
         border-radius: 999px;
         border: 1px solid transparent;
@@ -289,6 +296,32 @@
         opacity: 0.5;
         cursor: default;
         box-shadow: none;
+      }
+
+      .ai-box {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 10px;
+        background: rgba(148, 163, 184, 0.08);
+      }
+
+      body.dark .ai-box {
+        background: rgba(15, 23, 42, 0.8);
+        border-color: #1f2937;
+      }
+
+      .ai-status {
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: var(--accent);
+      }
+
+      .ai-text {
+        white-space: pre-line;
+        line-height: 1.45;
+        font-size: 0.9rem;
+        color: var(--text);
       }
 
       .ai-box {
@@ -1053,9 +1086,7 @@
       const themeFilter = document.getElementById("theme-filter");
       const bestScoreEl = document.getElementById("best-score");
       const historyListEl = document.getElementById("history-list");
-      const COPILOT_KEY_STORAGE = "quiz-copilot-key";
-      const COPILOT_API_URL = "https://api.githubcopilot.com/chat/completions";
-      const COPILOT_MODEL = "gpt-4o-mini";
+      const COPILOT_CHAT_URL = "https://copilot.microsoft.com/?prompt=";
       const copyBtnDefaultLabel = "📋 Copier la question + choix";
       let copyLabelTimeout = null;
       let randomEnabled = false;
@@ -1280,6 +1311,111 @@
         }
 
         updateProgress();
+      }
+
+      function getCurrentQuestion() {
+        const qIndex = order[currentIndex];
+        if (typeof qIndex !== "number") return null;
+        return questions[qIndex];
+      }
+
+      function resetAiPanel() {
+        aiBox.classList.add("hidden");
+        aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
+        aiText.textContent = "";
+      }
+
+      function formatQuestionPayload(q) {
+        const choices = q.options
+          .map((opt, idx) => `${String.fromCharCode(65 + idx)}. ${opt}`)
+          .join("\n");
+        return `Question : ${q.q}\nOptions :\n${choices}`;
+      }
+
+      function handleCopyQuestion() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+        const payload = formatQuestionPayload(q);
+        const onCopied = () => {
+          copyQuestionBtn.textContent = "✅ Copié !";
+          if (copyLabelTimeout) clearTimeout(copyLabelTimeout);
+          copyLabelTimeout = setTimeout(() => {
+            copyQuestionBtn.textContent = copyBtnDefaultLabel;
+          }, 1600);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(payload)
+            .then(onCopied)
+            .catch(() => fallbackCopy(payload, onCopied));
+        } else {
+          fallbackCopy(payload, onCopied);
+        }
+      }
+
+      function fallbackCopy(text, callback) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          const ok = document.execCommand("copy");
+          if (ok && callback) callback();
+        } catch (error) {
+          alert(
+            "Impossible de copier automatiquement. Sélectionne et copie manuellement."
+          );
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+
+      function updateRandomToggle() {
+        randomToggleBtn.textContent = randomEnabled
+          ? "🔀 Aléatoire : ON"
+          : "➡️ Aléatoire : OFF";
+        randomToggleBtn.classList.toggle("btn-primary", randomEnabled);
+        randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
+      }
+
+      function buildCopilotPrompt(q) {
+        return (
+          "Aide-moi à répondre à ce QCM de littérature française en citant la réponse probable et l'explication :\n" +
+          formatQuestionPayload(q)
+        );
+      }
+
+      function openCopilotTab(promptText) {
+        const targetUrl = COPILOT_CHAT_URL + encodeURIComponent(promptText);
+        const win = window.open(targetUrl, "_blank", "noopener,noreferrer");
+        return { blocked: !win, url: targetUrl };
+      }
+
+      function askAiForHelp() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+
+        aiBox.classList.remove("hidden");
+        aiStatus.textContent =
+          "🔗 Copilot s’ouvre dans un nouvel onglet (connexion Microsoft requise).";
+        aiText.textContent =
+          "Si l’onglet ne s’ouvre pas, autorise les pop-ups puis réessaie.";
+
+        const promptText = buildCopilotPrompt(q);
+        const { blocked, url } = openCopilotTab(promptText);
+
+        if (blocked) {
+          aiStatus.textContent =
+            "⚠️ Pop-up bloquée. Ouvre Copilot via le lien ci-dessous.";
+          aiText.innerHTML =
+            '<a href="' +
+            url +
+            '" target="_blank" rel="noopener">Ouvrir Microsoft Copilot</a>';
+        } else {
+          aiText.innerHTML =
+            `Besoin d’un nouvel envoi ? <a href="${url}" target="_blank" rel="noopener">Relancer Copilot</a>.`;
+        }
       }
 
       function getCurrentQuestion() {
