@@ -253,6 +253,13 @@
         margin-bottom: 10px;
       }
 
+      .question-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
       .btn {
         border-radius: 999px;
         border: 1px solid transparent;
@@ -289,6 +296,32 @@
         opacity: 0.5;
         cursor: default;
         box-shadow: none;
+      }
+
+      .ai-box {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 10px;
+        background: rgba(148, 163, 184, 0.08);
+      }
+
+      body.dark .ai-box {
+        background: rgba(15, 23, 42, 0.8);
+        border-color: #1f2937;
+      }
+
+      .ai-status {
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: var(--accent);
+      }
+
+      .ai-text {
+        white-space: pre-line;
+        line-height: 1.45;
+        font-size: 0.9rem;
+        color: var(--text);
       }
 
       .ai-box {
@@ -1382,6 +1415,144 @@
         } else {
           aiText.innerHTML =
             `Besoin d’un nouvel envoi ? <a href="${url}" target="_blank" rel="noopener">Relancer Copilot</a>.`;
+        }
+      }
+
+      function getCurrentQuestion() {
+        const qIndex = order[currentIndex];
+        if (typeof qIndex !== "number") return null;
+        return questions[qIndex];
+      }
+
+      function resetAiPanel() {
+        aiBox.classList.add("hidden");
+        aiStatus.textContent = "Utilise ce panneau pour demander un coup de pouce.";
+        aiText.textContent = "";
+      }
+
+      function formatQuestionPayload(q) {
+        const choices = q.options
+          .map((opt, idx) => `${String.fromCharCode(65 + idx)}. ${opt}`)
+          .join("\n");
+        return `Question : ${q.q}\nOptions :\n${choices}`;
+      }
+
+      function handleCopyQuestion() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+        const payload = formatQuestionPayload(q);
+        const onCopied = () => {
+          copyQuestionBtn.textContent = "✅ Copié !";
+          if (copyLabelTimeout) clearTimeout(copyLabelTimeout);
+          copyLabelTimeout = setTimeout(() => {
+            copyQuestionBtn.textContent = copyBtnDefaultLabel;
+          }, 1600);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(payload)
+            .then(onCopied)
+            .catch(() => fallbackCopy(payload, onCopied));
+        } else {
+          fallbackCopy(payload, onCopied);
+        }
+      }
+
+      function fallbackCopy(text, callback) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          const ok = document.execCommand("copy");
+          if (ok && callback) callback();
+        } catch (error) {
+          alert(
+            "Impossible de copier automatiquement. Sélectionne et copie manuellement."
+          );
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+
+      function updateRandomToggle() {
+        randomToggleBtn.textContent = randomEnabled
+          ? "🔀 Aléatoire : ON"
+          : "➡️ Aléatoire : OFF";
+        randomToggleBtn.classList.toggle("btn-primary", randomEnabled);
+        randomToggleBtn.classList.toggle("btn-ghost", !randomEnabled);
+      }
+
+      async function askAiForHelp() {
+        const q = getCurrentQuestion();
+        if (!q) return;
+        let apiKey = localStorage.getItem(COPILOT_KEY_STORAGE);
+        if (!apiKey) {
+          apiKey = prompt(
+            "Entre ta clé API Microsoft Copilot (stockée uniquement sur ce navigateur) :"
+          );
+          if (!apiKey) {
+            aiBox.classList.remove("hidden");
+            aiStatus.textContent =
+              "⚠️ Aucun appel envoyé : aucune clé API n’a été fournie.";
+            aiText.textContent = "";
+            return;
+          }
+          apiKey = apiKey.trim();
+          if (apiKey) {
+            localStorage.setItem(COPILOT_KEY_STORAGE, apiKey);
+          }
+        }
+
+        aiBox.classList.remove("hidden");
+        aiStatus.textContent = "⏳ L’IA réfléchit à une piste de réponse…";
+        aiText.textContent = "";
+
+        const body = {
+          model: COPILOT_MODEL,
+          temperature: 0.2,
+          max_tokens: 250,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Tu aides un élève à répondre à un QCM de littérature française. Donne une analyse courte, cite la réponse la plus probable (lettre + texte) et explique pourquoi.",
+            },
+            {
+              role: "user",
+              content: `${formatQuestionPayload(q)}\nExplique ton raisonnement en 3 phrases maximum.`,
+            },
+          ],
+        };
+
+        try {
+          const response = await fetch(COPILOT_API_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            throw new Error(
+              "La réponse de l’API Copilot a échoué. Vérifie ta clé ou les quotas."
+            );
+          }
+
+          const data = await response.json();
+          const content =
+            data.choices?.[0]?.message?.content?.trim() ||
+            "Aucune réponse claire n’a été fournie.";
+          aiStatus.textContent = "✅ Proposition de l’IA :";
+          aiText.textContent = content;
+        } catch (error) {
+          aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
+          aiText.textContent =
+            error.message +
+            "\nAssure-toi d’avoir une connexion réseau et une clé API Copilot valide.";
         }
       }
 
