@@ -576,7 +576,7 @@
           </button>
           <button class="btn btn-ghost" id="reset-btn">🔄 Réinitialiser</button>
           <button class="btn btn-ghost" id="random-toggle">
-            🔀 Aléatoire : ON
+            ➡️ Aléatoire : OFF
           </button>
         </div>
 
@@ -1053,10 +1053,12 @@
       const themeFilter = document.getElementById("theme-filter");
       const bestScoreEl = document.getElementById("best-score");
       const historyListEl = document.getElementById("history-list");
-      const OPENAI_KEY_STORAGE = "quiz-ai-key";
+      const COPILOT_KEY_STORAGE = "quiz-copilot-key";
+      const COPILOT_API_URL = "https://api.githubcopilot.com/chat/completions";
+      const COPILOT_MODEL = "gpt-4o-mini";
       const copyBtnDefaultLabel = "📋 Copier la question + choix";
       let copyLabelTimeout = null;
-      let randomEnabled = true;
+      let randomEnabled = false;
 
       function persistScores() {
         localStorage.setItem(STORAGE_BEST_KEY, JSON.stringify(bestScores));
@@ -1349,10 +1351,10 @@
       async function askAiForHelp() {
         const q = getCurrentQuestion();
         if (!q) return;
-        let apiKey = localStorage.getItem(OPENAI_KEY_STORAGE);
+        let apiKey = localStorage.getItem(COPILOT_KEY_STORAGE);
         if (!apiKey) {
           apiKey = prompt(
-            "Entre ta clé API OpenAI (stockée uniquement sur ce navigateur) :"
+            "Entre ta clé API Microsoft Copilot (stockée uniquement sur ce navigateur) :"
           );
           if (!apiKey) {
             aiBox.classList.remove("hidden");
@@ -1363,7 +1365,7 @@
           }
           apiKey = apiKey.trim();
           if (apiKey) {
-            localStorage.setItem(OPENAI_KEY_STORAGE, apiKey);
+            localStorage.setItem(COPILOT_KEY_STORAGE, apiKey);
           }
         }
 
@@ -1372,7 +1374,7 @@
         aiText.textContent = "";
 
         const body = {
-          model: "gpt-4o-mini",
+          model: COPILOT_MODEL,
           temperature: 0.2,
           max_tokens: 250,
           messages: [
@@ -1389,7 +1391,7 @@
         };
 
         try {
-          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          const response = await fetch(COPILOT_API_URL, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1400,7 +1402,7 @@
 
           if (!response.ok) {
             throw new Error(
-              "La réponse de l’API a échoué. Vérifie ta clé ou les quotas."
+              "La réponse de l’API Copilot a échoué. Vérifie ta clé ou les quotas."
             );
           }
 
@@ -1414,7 +1416,7 @@
           aiStatus.textContent = "⚠️ Impossible d’obtenir une réponse.";
           aiText.textContent =
             error.message +
-            "\nAssure-toi d’avoir une connexion réseau et une clé API valide.";
+            "\nAssure-toi d’avoir une connexion réseau et une clé API Copilot valide.";
         }
       }
 
